@@ -1,0 +1,1 @@
+shiny::runApp("script", launch.browser = TRUE)
