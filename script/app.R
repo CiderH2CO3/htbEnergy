@@ -9,6 +9,8 @@
 
 library(shiny)
 
+YMDSTR <- "%Y%m%d"
+
 # Define UI for application that draws a histogram
 ui <- fluidPage(
    
@@ -30,8 +32,9 @@ ui <- fluidPage(
          radioButtons("graph",
                       "表示するグラフ",
                       choiceNames = c("使用タイミング折れ線",
-                                      "一番使ってる時間は？"),
-                      choiceValues = c("lines", "hist"))
+                                      "一番使ってる時間は？",
+                                      "カレンダープロット"),
+                      choiceValues = c("lines", "hist", "calendar"))
       ),
       
       # Show a plot of the generated distribution
@@ -46,12 +49,23 @@ server <- function(input, output, session) {
   session$onSessionEnded(function(){
     stopApp()
     q("no")
+  
+  observeEvent(input$install_openair,{
+    removeModal()
+    install.packages("openair")
+    if(require("openair")){
+      print("openair install successful")
+    }else{
+      showModal(modalDialog(title = "ERROR","openairライブラリのインストールに失敗しました",
+                            footer = modalButton("確認した"), easyClose = T))
+    }
   })
+  
   observe({
     if(!is.null(input$file)){
       csvData = read.csv(file(input$file$datapath, encoding = "cp932"), skip = 2, row.names = 1)
-      minDate <- min(as.Date(rownames(csvData), "%Y%m%d"))
-      maxDate <- max(as.Date(rownames(csvData), "%Y%m%d"))
+      minDate <- min(as.Date(rownames(csvData), YMDSTR))
+      maxDate <- max(as.Date(rownames(csvData), YMDSTR))
       updateDateRangeInput(session, "date", min = minDate, max = maxDate, start = minDate, end = maxDate)
     }
   })
@@ -68,12 +82,12 @@ server <- function(input, output, session) {
     }
     if(!is.null(csvData)){
       par(oma = c(1,0,0,0))
-      minDate <- min(as.Date(rownames(csvData), "%Y%m%d"))
-      maxDate <- max(as.Date(rownames(csvData), "%Y%m%d"))
+      minDate <- min(as.Date(rownames(csvData), YMDSTR))
+      maxDate <- max(as.Date(rownames(csvData), YMDSTR))
       if(!is.na(input$date[1]) && !is.na(input$date[2]) && input$date >= minDate && input$date <= maxDate){
-        dateRange <-strftime(seq(min(input$date), max(input$date), by = "day"), format = "%Y%m%d")
+        dateRange <-strftime(seq(min(input$date), max(input$date), by = "day"), format = YMDSTR)
         plotData <- csvData[dateRange,]
-          if(input$graph == "lines"){
+        if(input$graph == "lines"){
           timeRange <- 1:ncol(plotData)
           plot(0, 0, type = "n", ylim = range(plotData), xlim = range(timeRange), ylab = "kWh", xlab = "", xaxt = "n")
           axis(side = 1, at = timeRange, labels =  names(plotData), las = 2)
@@ -98,6 +112,28 @@ server <- function(input, output, session) {
           maxPoint <- apply(plotData, 1, which.max)
           hist(maxPoint, breaks = 24, xaxt = "n" ,xlab = "", ylab = "dates", main = NULL, col = "blue")
           axis(side = 1, at = 1:ncol(plotData), labels = colnames(plotData), las = 2)
+        }else if(input$graph == "calendar"){
+          plotData$total <- apply(plotData, 1, sum)
+          if(require("openair")){
+            print("openair is loaded correctly")
+            plotData$date <- as.Date(rownames(plotData), YMDSTR)
+            calendarPlot(plotData, pollutant = "total")
+          } else {
+            observeEvent(input$install_openair,{
+              removeModal()
+              install.packages("openair")
+              if(require("openair")){
+                showModal(modalDialog(title = "SUCCESS","openairライブラリのインストールに成功しました",
+                                      footer = modalButton("確認した"), easyClose = T))
+              }else{
+                showModal(modalDialog(title = "ERROR","openairライブラリのインストールに失敗しました",
+                                      footer = modalButton("確認した"), easyClose = T))
+              }
+            })
+            showModal(modalDialog(title = "ERROR","openairライブラリが見つかりません。インストールしますか？",
+                                  footer = div(actionButton("install_openair", "インストールする"), modalButton("いいえ")),
+                        easyClose = T))
+          }
         }
       }
     }
